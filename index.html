@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Пельменная</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: #12343b;
+    --panel: #1b4750;
+    --ink: #fff8e7;
+    --muted: #9fc3c4;
+    --accent: #f2b134;
+    --accent-ink: #2b1d00;
+    --pepper: #d8452e;
+    font-family: "Rubik", ui-rounded, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); }
+  body {
+    display: flex; flex-direction: column;
+    padding: env(safe-area-inset-top, 0px) 16px env(safe-area-inset-bottom, 0px);
+    user-select: none; -webkit-user-select: none; overflow: hidden;
+  }
+  header { padding: 16px 0 4px; text-align: center; }
+  .hello { margin: 0; color: var(--muted); font-size: 14px; }
+  .score { margin: 4px 0 0; font-size: 52px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+  .rate { margin: 6px 0 0; color: var(--accent); font-size: 14px; }
+
+  .stage { position: relative; flex: 1; min-height: 190px; display: grid; place-items: center; touch-action: manipulation; }
+  .dumpling { width: min(62vw, 240px); background: none; border: 0; padding: 0; cursor: pointer; transition: transform .08s ease-out; }
+  .dumpling:active, .dumpling.hit { transform: scale(.93) rotate(-3deg); }
+  .dumpling svg { width: 100%; height: auto; display: block; filter: drop-shadow(0 10px 0 rgba(0,0,0,.22)); }
+  .plus {
+    position: absolute; pointer-events: none; font-weight: 700; font-size: 24px; color: var(--accent);
+    animation: rise .8s ease-out forwards; text-shadow: 0 2px 0 rgba(0,0,0,.3);
+  }
+  @keyframes rise { to { transform: translateY(-80px); opacity: 0; } }
+
+  .shop { display: grid; gap: 8px; padding-bottom: 16px; }
+  .item {
+    display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; align-items: center; text-align: left;
+    width: 100%; padding: 12px 14px; border: 0; border-radius: 14px; background: var(--panel); color: var(--ink);
+    font: inherit; cursor: pointer;
+  }
+  .item:disabled { opacity: .5; cursor: default; }
+  .item:not(:disabled):active { transform: scale(.98); }
+  .name { font-weight: 600; font-size: 16px; }
+  .desc { grid-column: 1; color: var(--muted); font-size: 13px; }
+  .price {
+    grid-column: 2; grid-row: 1 / span 2; padding: 8px 12px; border-radius: 10px;
+    background: var(--accent); color: var(--accent-ink); font-weight: 700; font-size: 15px;
+  }
+  .item:disabled .price { background: transparent; color: var(--muted); outline: 1px solid var(--muted); }
+  :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { .plus { animation-duration: .01s; } .dumpling { transition: none; } }
+</style>
+</head>
+<body>
+  <header>
+    <p class="hello" id="hello">Пельменная</p>
+    <p class="score" id="score">0</p>
+    <p class="rate" id="rate"></p>
+  </header>
+
+  <main class="stage" id="stage">
+    <button class="dumpling" id="dumpling" aria-label="Слепить пельмень">
+      <svg viewBox="0 0 200 150" aria-hidden="true">
+        <path d="M14 96 C14 40 70 14 100 14 C130 14 186 40 186 96 C186 128 150 138 100 138 C50 138 14 128 14 96 Z" fill="#fff8e7"/>
+        <path d="M22 100 C60 112 140 112 178 100" stroke="#e8d9b4" stroke-width="6" fill="none" stroke-linecap="round"/>
+        <g fill="#e8d9b4"><circle cx="40" cy="108" r="5"/><circle cx="64" cy="115" r="5"/><circle cx="92" cy="118" r="5"/><circle cx="120" cy="116" r="5"/><circle cx="148" cy="112" r="5"/><circle cx="168" cy="106" r="5"/></g>
+        <circle cx="78" cy="68" r="7" fill="#12343b"/><circle cx="122" cy="68" r="7" fill="#12343b"/>
+        <path d="M88 84 Q100 94 112 84" stroke="#12343b" stroke-width="5" fill="none" stroke-linecap="round"/>
+        <circle cx="62" cy="82" r="8" fill="#d8452e" opacity=".35"/><circle cx="138" cy="82" r="8" fill="#d8452e" opacity=".35"/>
+      </svg>
+    </button>
+  </main>
+
+  <section class="shop" id="shop" aria-label="Улучшения"></section>
+
+<script>
+  // ---------- Telegram ----------
+  const tg = window.Telegram && window.Telegram.WebApp;
+  if (tg) {
+    tg.ready();
+    tg.expand();
+    try { tg.setHeaderColor('#12343b'); tg.setBackgroundColor('#12343b'); } catch (e) {}
+    const user = tg.initDataUnsafe && tg.initDataUnsafe.user;
+    if (user && user.first_name) document.getElementById('hello').textContent = 'Привет, ' + user.first_name + '!';
+  }
+  const haptic = (kind) => { try { tg && tg.HapticFeedback.impactOccurred(kind); } catch (e) {} };
+
+  // ---------- Игровые данные ----------
+  const UPGRADES = [
+    { id: 'pin',    name: 'Скалка',       desc: '+1 пельмень за клик', base: 15,  growth: 1.5 },
+    { id: 'granny', name: 'Бабушка',      desc: '+1 пельмень в секунду', base: 50,  growth: 1.35 },
+    { id: 'cooker', name: 'Мультиварка',  desc: '+10 пельменей в секунду', base: 400, growth: 1.4 }
+  ];
+  const KEY = 'pelmeni-save-v1';
+  let state = { score: 0, owned: { pin: 0, granny: 0, cooker: 0 } };
+  try {
+    const saved = JSON.parse(localStorage.getItem(KEY));
+    if (saved && typeof saved.score === 'number') state = { ...state, ...saved, owned: { ...state.owned, ...saved.owned } };
+  } catch (e) {}
+
+  const perTap = () => 1 + state.owned.pin;
+  const perSec = () => state.owned.granny + state.owned.cooker * 10;
+  const cost = (u) => Math.ceil(u.base * Math.pow(u.growth, state.owned[u.id]));
+  const fmt = (n) => Math.floor(n).toLocaleString('ru-RU');
+
+  // ---------- Интерфейс ----------
+  const $score = document.getElementById('score');
+  const $rate = document.getElementById('rate');
+  const $shop = document.getElementById('shop');
+  const $stage = document.getElementById('stage');
+  const $dumpling = document.getElementById('dumpling');
+
+  const buttons = {};
+  UPGRADES.forEach((u) => {
+    const b = document.createElement('button');
+    b.className = 'item';
+    b.innerHTML = '<span class="name"></span><span class="price"></span><span class="desc"></span>';
+    b.addEventListener('click', () => {
+      const c = cost(u);
+      if (state.score < c) return;
+      state.score -= c;
+      state.owned[u.id]++;
+      haptic('medium');
+      render(); save();
+    });
+    $shop.appendChild(b);
+    buttons[u.id] = b;
+  });
+
+  function render() {
+    $score.textContent = fmt(state.score);
+    $rate.textContent = fmt(perTap()) + ' за клик · ' + fmt(perSec()) + ' в секунду';
+    UPGRADES.forEach((u) => {
+      const b = buttons[u.id];
+      b.querySelector('.name').textContent = u.name + ' × ' + state.owned[u.id];
+      b.querySelector('.desc').textContent = u.desc;
+      b.querySelector('.price').textContent = fmt(cost(u));
+      b.disabled = state.score < cost(u);
+    });
+  }
+
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
+
+  // ---------- Клик ----------
+  $dumpling.addEventListener('pointerdown', (e) => {
+    state.score += perTap();
+    haptic('light');
+    const r = $stage.getBoundingClientRect();
+    const p = document.createElement('span');
+    p.className = 'plus';
+    p.textContent = '+' + fmt(perTap());
+    p.style.left = (e.clientX - r.left - 12) + 'px';
+    p.style.top = (e.clientY - r.top - 24) + 'px';
+    p.addEventListener('animationend', () => p.remove());
+    $stage.appendChild(p);
+    render();
+  });
+  // Пробел/Enter для клавиатуры: click без координат
+  $dumpling.addEventListener('click', (e) => {
+    if (e.detail === 0) { state.score += perTap(); render(); }
+  });
+
+  // ---------- Автоклик ----------
+  setInterval(() => { if (perSec() > 0) { state.score += perSec() / 10; render(); } }, 100);
+  setInterval(save, 2000);
+  document.addEventListener('visibilitychange', save);
+
+  render();
+</script>
+</body>
+</html>
